@@ -53,39 +53,61 @@ def multisync(arg):
 
             #writer = cv2.VideoWriter(filename,cv2.VideoWriter_fourcc(*'MJPG'),10,output.shape[:2],True)
 
+
+'''Assignment of view boundary file for homography'''
     if arg.calib is not None:
         boundary_file = np.load(arg.calib)
         assert len(boundary_file) == len(vids) , 'No of views and input calibration file are different'
     else:
+        #arg.calib here is just the coord of the boundary view, right now we always input boundary file that means camera
+        # is always calibrated, if not provided then just show independent detection and tracking
         boundary_file = [None]*len(vids)
+
+
+
+'''Assign individual video scene into a individual class'''
 
     for i in range(len(vids)):
         arg.VIDEO_PATH = vids[i]
         
+        #here I will assign each video scene into a class
         with VideoTracker(cfg,arg,detector,boundary_file[i],i+1) as vdo_trk:
             cam_obj += [vdo_trk]
 
+
+
+
+'''film start rolling'''
+
+
     while count < 100:
+
         start = time.time()
         idx_frame += 1
         if idx_frame % args.frame_interval != 0:
-            '''dont process and show the scene'''
-            [c.run_scene(skip=True) for c in cam_obj]
+            [c.run_scene(skip=True) for c in cam_obj] # dont process and skip the scene
             continue
         
+
+
+        # process the scene, when run_scene is called, each detection in the scene will have its viewpoint noted down
         tracking_output = [c.run_scene() for c in cam_obj]
 
 
         if (args.calib is not None) and (any([len(out['vp'].pts)>0 for out in tracking_output])):
-            '''scene boundary file is provided'''
-            cl = cluster()
-            cl([out['vp'] for out in tracking_output])
+            #scene boundary file is provided
+
+
+            cl = cluster() 
+            cl([out['vp'] for out in tracking_output]) #cl is an independent class that only help to cluster the different viewpoints
             cl.update()
 
         
+
+               #here output footpoint 
+
             for i,v in enumerate(tracking_output):
                 plt.scatter(v['vp'].pts[:,0],v['vp'].pts[:,1]*-1,color='C'+str(i))
-                #print(v.pts)
             centric = cl.return_centric()
             #plt.scatter(centric[:,0],centric[:,1]*-1,color='black')
             plt.savefig('../temp.png')
@@ -96,11 +118,21 @@ def multisync(arg):
             plt.savefig('../temp2.png')
             break
 
+
+
+
             for i,out in enumerate(tracking_output):
                 if len(out['b']) > 0:
                     out['x'] = draw_boxes(out['x'],out['b'],out['vp'].label)
                     cv2.putText(out['x'],text=f"Number of people {len(out['b'])}",org=(out['x'].shape[1]-200,50),fontFace=cv2.FONT_HERSHEY_SIMPLEX ,fontScale=0.6,thickness=2,color=(0,0,255)) 
-                #print(out['b'], out['vp'].pts, i)
+        
+
+
+
+
+
+        
+                #if boundary file not provided, just normal multiple scenes indpdnt. detection
         else:
             for out in tracking_output:
                 if len(out['b']) > 0:
@@ -108,27 +140,37 @@ def multisync(arg):
                     cv2.putText(out['x'],text=f"Number of people {len(out['b'])}",org=(out['x'].shape[1]-200,50),fontFace=cv2.FONT_HERSHEY_SIMPLEX ,fontScale=0.6,thickness=2,color=(0,0,255)) 
  
 
-        for i,out in enumerate(tracking_output):
-            x1,x2 = out['vp'].dst[0] , out['vp'].dst[2]
-            #bg = np.zeros((x2[0]-x1[0],x2[1]-x1[1],3)) + 255
-            out['vp'].scene_affine(out['x'])
-            bg = out['vp'].view_image
-            for pts in out['vp'].pts:
-                try:
-                    #print(pts,i)
-                    bg[int(pts[1])-5:int(pts[1])+5,int(pts[0])-5:int(pts[0])+5,:] = [0,0,255]
-                except:
-                    pass
-            bg = cv2.resize(bg,(out['x'].shape[1] , out['x'].shape[0] ))
 
-            tracking_output[i]['x'] = np.append(out['x'],bg, axis=1)
+
+
+        if arg.calib is not None:
+            for i,out in enumerate(tracking_output):
+                x1,x2 = out['vp'].dst[0] , out['vp'].dst[2]
+                #bg = np.zeros((x2[0]-x1[0],x2[1]-x1[1],3)) + 255
+                out['vp'].scene_affine(out['x'])
+                bg = out['vp'].view_image
+                for pts in out['vp'].pts:
+                    try:
+                        #print(pts,i)
+                        bg[int(pts[1])-5:int(pts[1])+5,int(pts[0])-5:int(pts[0])+5,:] = [0,0,255]
+                    except:
+                        pass
+                bg = cv2.resize(bg,(out['x'].shape[1] , out['x'].shape[0] ))
+
+                tracking_output[i]['x'] = np.append(out['x'],bg, axis=1)
+
+
+
+
+        #show the scene here
 
         for out in tracking_output:
         #    out['x'] = cv2.warpPerspective(out['x'],out['vp'].M,dsize=(out['x'].shape[0],out['x'].shape[1]))
             out['x'] = cv2.resize(out['x'],(500,300))    
 
                       
-            
+        #concat them 
+
         output = concat_video([out['x'] for out in tracking_output])
         cv2.imshow('test',output)
         if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -156,6 +198,7 @@ def multisync(arg):
 
 
 if __name__ == '__main__':
+    #os.chdir(os.path.dirname(os.path.realpath(__file__)))
     args = parse_args()
     cfg = get_config()
     cfg.merge_from_file(args.config_detection)
